@@ -2,7 +2,7 @@ local module = {}
 
 module.BF_DEFAULT_CELL = 30000
 
-function module.bf_tokens(source)
+function module.BFTokens(source)
     if type(source) ~= "string" then
         error("bf_tokens() source must be string")
     end
@@ -10,26 +10,26 @@ function module.bf_tokens(source)
     local comment = false
     local tokens = {}
 
-    for index = 1, #source do
-        local char = source:sub(index, index)
+    for position = 1, #source do
+        local character = source:sub(position, position)
 
-        if not comment and char == '#' then
+        if not comment and character == '#' then
             comment = true
-        elseif comment and char == '\n' then
+        elseif comment and character == '\n' then
             comment = false
         end
 
         if not comment and (
-            char == '<' or
-            char == '>' or
-            char == '+' or
-            char == '-' or
-            char == '.' or
-            char == ',' or
-            char == '[' or
-            char == ']'
+            character == '<' or
+            character == '>' or
+            character == '+' or
+            character == '-' or
+            character == '.' or
+            character == ',' or
+            character == '[' or
+            character == ']'
         ) then
-            table.insert(tokens, {index, char})
+            table.insert(tokens, {position, character})
         end
     end
 
@@ -37,10 +37,13 @@ function module.bf_tokens(source)
 end
 
 module.BFInterpreter = {}
-module.BFInterpreter.__index = module.BFInterpreter
 
 function module.BFInterpreter:new(source, cell, input, output)
-    local self = setmetatable({}, module.BFInterpreter)
+    local instance = {}
+
+    setmetatable(instance, self)
+
+    self.__index = self
 
     if cell == nil then
         cell = module.BF_DEFAULT_CELL
@@ -48,19 +51,24 @@ function module.BFInterpreter:new(source, cell, input, output)
 
     if input == nil then
         function input()
-            return string.byte(io.read(1))
+            while true do
+                local result = string.byte(io.read(1))
+                if math.type(result) == "integer" and result >= 0 and result <= 255 then
+                    return result
+                end
+            end
         end
     end
 
     if output == nil then
-        function output(str)
-            io.write(string.char(str))
+        function output(byte)
+            io.write(string.char(byte))
             io.flush()
         end
     end
 
     if math.type(cell) ~= "integer" or cell <= 0 then
-        error("BFInterpreter() cell must be integer and greather than 0")
+        error("BFInterpreter() cell must be integer and greater than 0")
     end
     if not type(input) == "function" then
         error("BFInterpreter() input must be a function")
@@ -69,31 +77,31 @@ function module.BFInterpreter:new(source, cell, input, output)
         error("BFInterpreter() output must be a function")
     end
 
-    self.tokens = module.bf_tokens(source)
+    self.tokens = module.BFTokens(source)
     self.cell = cell
     self.input = input
     self.output = output
 
     self.begin = false
-    self.bracket_map = {}
+    self.bracketMap = {}
 
     local stack = {}
 
     for i = 1, #self.tokens do
-        local token = self.tokens[i]
-        local char = token[2]
+        local character = self.tokens[i][2]
 
-        if char == '[' then
+        if character == '[' then
             table.insert(stack, i)
-        elseif char == ']' then
+
+        elseif character == ']' then
             if #stack == 0 then
                 error("unbalanced brackets")
             end
 
-            local start_index = table.remove(stack)
+            local startIndex = table.remove(stack)
 
-            self.bracket_map[start_index] = i
-            self.bracket_map[i] = start_index
+            self.bracketMap[startIndex] = i
+            self.bracketMap[i] = startIndex
         end
     end
 
@@ -101,72 +109,69 @@ function module.BFInterpreter:new(source, cell, input, output)
         error("unbalanced brackets")
     end
 
-    return self
+    return instance
 end
 
 function module.BFInterpreter:start()
-    if not self.begin then
-        self.array = {}
-        self.index = 0
-        self.pointer = 1
-        self.begin = true
-    end
-    return self
+    if self.begin then return end
+
+    self.memory = {}
+    self.index = 0
+    self.pointer = 1
+    self.begin = true
 end
 
 function module.BFInterpreter:step()
-    if not self.begin then
-        return
-    end
-
-    local stop = true
-    local pos, char
+    if not self.begin then return end
 
     self.index = self.index + 1
 
+    local stop = true
+    local position, character
+
     while self.index <= #self.tokens do
-        local token = self.tokens[self.index]
-        local point = self.array[self.pointer] or 0
+        local point = self.memory[self.pointer] or 0
 
-        pos = token[1]
-        char = token[2]
+        position, character = table.unpack(self.tokens[self.index])
 
-        if char == '>' then
+        if character == '>' then
             self.pointer = self.pointer + 1
             if self.pointer > self.cell then
-                error("pointer out of range")
+                error("pointer out of bounds")
             end
 
-        elseif char == '<' then
+        elseif character == '<' then
             self.pointer = self.pointer - 1
             if self.pointer < 1 then
-                error("pointer out of range")
+                error("pointer out of bounds")
             end
 
-        elseif char == '+' then
-            self.array[self.pointer] = (point + 1) % 256
+        elseif character == '+' then
+            self.memory[self.pointer] = (point + 1) % 256
 
-        elseif char == '-' then
-            self.array[self.pointer] = (point - 1) % 256
+        elseif character == '-' then
+            self.memory[self.pointer] = (point - 1) % 256
 
-        elseif char == ',' then
-            local inp = self.input()
-            if not (math.type(inp) == "integer" and 0 <= inp <= 255) then
+        elseif character == ',' then
+            local input = self.input()
+
+            if not (math.type(input) == "integer" and input >= 0 and input <= 255) then
                 error("BFInterpreter() input must be returns unsigned 8-bit integer")
             end
-            self.array[self.pointer] = inp
 
-        elseif char == '.' then
+            self.memory[self.pointer] = input
+
+        elseif character == '.' then
             self.output(point)
 
-        elseif char == '[' then
+        elseif character == '[' then
             if point == 0 then
-                self.index = self.bracket_map[self.index]
+                self.index = self.bracketMap[self.index]
             end
 
-        elseif char == ']' then
+        elseif character == ']' then
             if point ~= 0 then
-                self.index = self.bracket_map[self.index]
+                self.index = self.bracketMap[self.index]
             end
 
         end
@@ -180,10 +185,14 @@ function module.BFInterpreter:step()
         return
     end
 
-    return {self.index, self.pointer, pos, char}
+    return {self.index, self.pointer, position, character}
 end
 
-function module.bf_exec(source, cell, input, output)
+function module.BFInterpreter:stop()
+    self.begin = false
+end
+
+function module.BFExec(source, cell, input, output)
     local interpreter = module.BFInterpreter:new(source, cell, input, output)
     interpreter:start()
     repeat interpreter:step() until not interpreter.begin

@@ -1,51 +1,48 @@
 import sys
 
 if sys.platform == 'win32':
-    import msvcrt
-
-    def getch():
-        return msvcrt.getch()
+    from msvcrt import getch
 else:
     import termios
     import tty
 
     def getch():
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+        fileDescriptor = sys.stdin.fileno()
+        oldSettings = termios.tcgetattr(fileDescriptor)
 
         try:
             tty.setraw(sys.stdin.fileno())
-            ch = sys.stdin.read(1).encode()
+            character = sys.stdin.read(1).encode()
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            termios.tcsetattr(fileDescriptor, termios.TCSADRAIN, oldSettings)
 
-        return ch
+        return character
 
 __all__ = [
     'BF_DEFAULT_CELL',
     'BFInterpreter',
-    'bf_tokens',
-    'bf_exec'
+    'BFTokens',
+    'BFExec'
 ]
 
 BF_DEFAULT_CELL = 30000
 
-def bf_tokens(source):
+def BFTokens(source):
     if not isinstance(source, str):
         raise TypeError("bf_tokens() source must be string")
 
     comment = False
     tokens = []
 
-    for index, char in enumerate(source):
+    for position, character in enumerate(source):
 
-        if not comment and char == '#':
+        if not comment and character == '#':
             comment = True
-        elif comment and char == '\n':
+        elif comment and character == '\n':
             comment = False
 
-        if not comment and char in '<>+-.,[]':
-            tokens.append((index, char))
+        if not comment and character in '<>+-.,[]':
+            tokens.append((position, character))
 
     return tokens
 
@@ -57,53 +54,58 @@ class BFInterpreter:
 
         if input is None:
             def input():
-                return ord(getch())
+                while True:
+                    result = ord(getch())
+                    if 0 <= result <= 255:
+                        return result
 
         if output is None:
-            def output(char):
-                sys.stdout.write(chr(char))
+            def output(byte):
+                sys.stdout.write(chr(byte))
                 sys.stdout.flush()
 
         if not isinstance(cell, int) or cell <= 0:
-            raise TypeError("BFInterpreter() cell must be integer and greather than 0")
+            raise TypeError("BFInterpreter() cell must be integer and greater than 0")
         if not callable(input):
             raise TypeError("BFInterpreter() input must be callable")
         if not callable(output):
             raise TypeError("BFInterpreter() output must be callable")
 
-        self.tokens = bf_tokens(source)
+        self.tokens = BFTokens(source)
         self.cell = cell
         self.input = input
         self.output = output
 
         self.begin = False
-        self.bracket_map = {}
+        self.bracketMap = {}
 
         stack = []
 
-        for i, (pos, char) in enumerate(self.tokens):
+        for i, (_, character) in enumerate(self.tokens):
 
-            if char == '[':
+            if character == '[':
                 stack.append(i)
 
-            elif char == ']':
+            elif character == ']':
                 if not stack:
                     raise SyntaxError("unbalanced brackets")
 
-                start_index = stack.pop()
+                startIndex = stack.pop()
 
-                self.bracket_map[start_index] = i
-                self.bracket_map[i] = start_index
+                self.bracketMap[startIndex] = i
+                self.bracketMap[i] = startIndex
 
         if stack:
             raise SyntaxError("unbalanced brackets")
 
     def start(self):
-        if not self.begin:
-            self.array = [0] * self.cell
-            self.index = -1
-            self.pointer = 0
-            self.begin = True
+        if self.begin:
+            return
+
+        self.memory = [0] * self.cell
+        self.index = -1
+        self.pointer = 0
+        self.begin = True
 
     def step(self):
         if not self.begin:
@@ -112,42 +114,42 @@ class BFInterpreter:
         self.index += 1
 
         while self.index < len(self.tokens):
-            pos, char = self.tokens[self.index]
+            position, character = self.tokens[self.index]
 
-            if char == '>':
+            if character == '>':
                 self.pointer += 1
                 if self.pointer >= self.cell:
                     raise IndexError("pointer out of bounds")
 
-            elif char == '<':
+            elif character == '<':
                 self.pointer -= 1
                 if self.pointer < 0:
                     raise IndexError("pointer out of bounds")
 
-            elif char == '+':
-                self.array[self.pointer] = (self.array[self.pointer] + 1) % 256
+            elif character == '+':
+                self.memory[self.pointer] = (self.memory[self.pointer] + 1) % 256
 
-            elif char == '-':
-                self.array[self.pointer] = (self.array[self.pointer] - 1) % 256
+            elif character == '-':
+                self.memory[self.pointer] = (self.memory[self.pointer] - 1) % 256
 
-            elif char == ',':
-                inp = self.input()
+            elif character == ',':
+                input = self.input()
 
-                if not (isinstance(inp, int) and 0 <= inp <= 255):
+                if not (isinstance(input, int) and 0 <= input <= 255):
                     raise TypeError("BFInterpreter() input must be returns unsigned 8-bit integer")
 
-                self.array[self.pointer] = inp
+                self.memory[self.pointer] = input
 
-            elif char == '.':
-                self.output(self.array[self.pointer])
+            elif character == '.':
+                self.output(self.memory[self.pointer])
 
-            elif char == '[':
-                if self.array[self.pointer] == 0:
-                    self.index = self.bracket_map[self.index]
+            elif character == '[':
+                if self.memory[self.pointer] == 0:
+                    self.index = self.bracketMap[self.index]
 
-            elif char == ']':
-                if self.array[self.pointer] != 0:
-                    self.index = self.bracket_map[self.index]
+            elif character == ']':
+                if self.memory[self.pointer] != 0:
+                    self.index = self.bracketMap[self.index]
 
             break
 
@@ -155,7 +157,10 @@ class BFInterpreter:
             self.begin = False
             return
 
-        return self.index, self.pointer, pos, char
+        return self.index, self.pointer, position, character
+
+    def stop(self):
+        self.begin = False
 
     def __iter__(self):
         self.start()
@@ -163,10 +168,12 @@ class BFInterpreter:
 
     def __next__(self):
         result = self.step()
+
         if result is None:
             raise StopIteration
+
         return result
 
-def bf_exec(source, **kwargs):
+def BFExec(source, **kwargs):
     for _ in BFInterpreter(source, **kwargs):
         pass
