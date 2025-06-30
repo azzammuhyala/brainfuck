@@ -3,6 +3,10 @@ local module = {}
 module.BF_DEFAULT_CELL = 30000
 
 function module.bf_tokens(source)
+    if type(source) ~= "string" then
+        error("bf_tokens() source must be string")
+    end
+
     local comment = false
     local tokens = {}
 
@@ -55,7 +59,7 @@ function module.BFInterpreter:new(source, cell, input, output)
         end
     end
 
-    if type(cell) ~= "number" or cell <= 0 then
+    if math.type(cell) ~= "integer" or cell <= 0 then
         error("BFInterpreter() cell must be integer and greather than 0")
     end
     if not type(input) == "function" then
@@ -100,7 +104,7 @@ function module.BFInterpreter:new(source, cell, input, output)
     return self
 end
 
-function module.BFInterpreter:inter()
+function module.BFInterpreter:start()
     if not self.begin then
         self.array = {}
         self.index = 0
@@ -110,7 +114,7 @@ function module.BFInterpreter:inter()
     return self
 end
 
-function module.BFInterpreter:next()
+function module.BFInterpreter:step()
     if not self.begin then
         return
     end
@@ -129,14 +133,12 @@ function module.BFInterpreter:next()
 
         if char == '>' then
             self.pointer = self.pointer + 1
-
             if self.pointer > self.cell then
                 error("pointer out of range")
             end
 
         elseif char == '<' then
             self.pointer = self.pointer - 1
-
             if self.pointer < 1 then
                 error("pointer out of range")
             end
@@ -149,11 +151,9 @@ function module.BFInterpreter:next()
 
         elseif char == ',' then
             local inp = self.input()
-
-            if not (type(inp) == "number" and 0 <= inp <= 255) then
+            if not (math.type(inp) == "integer" and 0 <= inp <= 255) then
                 error("BFInterpreter() input must be returns unsigned 8-bit integer")
             end
-
             self.array[self.pointer] = inp
 
         elseif char == '.' then
@@ -185,8 +185,8 @@ end
 
 function module.bf_exec(source, cell, input, output)
     local interpreter = module.BFInterpreter:new(source, cell, input, output)
-    interpreter:inter()
-    repeat interpreter:next() until not interpreter.begin
+    interpreter:start()
+    repeat interpreter:step() until not interpreter.begin
 end
 
 return module

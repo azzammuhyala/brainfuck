@@ -1,32 +1,36 @@
-"""
-BrainFuck Interpreter
-=====================
-Module to parse and run brainfuck code, all written in python code!
-"""
-
 import sys
-import numpy
-import getch
-import typing
 
-__all__: typing.List[str] = [
+if sys.platform == 'win32':
+    import msvcrt
+
+    def getch():
+        return msvcrt.getch()
+else:
+    import termios
+    import tty
+
+    def getch():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1).encode()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+        return ch
+
+__all__ = [
     'BF_DEFAULT_CELL',
-
     'BFInterpreter',
-
     'bf_tokens',
     'bf_exec'
 ]
 
-BF_DEFAULT_CELL: int = 30000
+BF_DEFAULT_CELL = 30000
 
-def bf_tokens(source: str) -> typing.List[typing.Tuple[int, typing.Literal['<', '>', '+', '-', '.', ',', '[', ']']]]:
-
-    """
-    Converts brainfuck source code to token chunks.
-    Supports "#" comment feature and ignores invalid characters.
-    """
-
+def bf_tokens(source):
     if not isinstance(source, str):
         raise TypeError("bf_tokens() source must be string")
 
@@ -47,33 +51,13 @@ def bf_tokens(source: str) -> typing.List[typing.Tuple[int, typing.Literal['<', 
 
 class BFInterpreter:
 
-    """ BrainFuck Interpreter """
-
-    def __init__(
-        self,
-        source: str,
-        *,
-        cell: typing.Optional[int] = None,
-        input: typing.Optional[typing.Callable[[], int]] = None,
-        output: typing.Optional[typing.Callable[[int], None]] = None
-    ) -> None:
-
-        """
-        Initializes the BrainFuck Interpreter.
-
-        param:
-            source: BrainFuck source code.
-            cell: Initial cell value. Defaults to BF_DEFAULT_CELL.
-            input: Input function. Defaults to None (uses getch).
-            output: Output function. Defaults to None (uses sys.stdout).
-        """
-
+    def __init__(self, source, *, cell=None, input=None, output=None):
         if cell is None:
             cell = BF_DEFAULT_CELL
 
         if input is None:
             def input():
-                return ord(getch.getch())
+                return ord(getch())
 
         if output is None:
             def output(char):
@@ -104,9 +88,7 @@ class BFInterpreter:
 
             elif char == ']':
                 if not stack:
-                    self.tokens = []
-                    self.bracket_map = {}
-                    raise SyntaxError("unmatched ']'")
+                    raise SyntaxError("unbalanced brackets")
 
                 start_index = stack.pop()
 
@@ -114,35 +96,18 @@ class BFInterpreter:
                 self.bracket_map[i] = start_index
 
         if stack:
-            self.tokens = []
-            self.bracket_map = {}
-            raise SyntaxError("unmatched '['")
+            raise SyntaxError("unbalanced brackets")
 
-    def __iter__(self) -> typing.Self:
-
-        """
-        Start code execution.
-        """
-
+    def start(self):
         if not self.begin:
-            self.array = numpy.zeros((self.cell,), dtype=numpy.uint8)
+            self.array = [0] * self.cell
             self.index = -1
             self.pointer = 0
             self.begin = True
 
-        return self
-
-    def __next__(self) -> typing.Tuple[int, int, int, typing.Literal['<', '>', '+', '-', '.', ',', '[', ']']]:
-
-        """
-        Execution of the code.
-
-        returns:
-            a tuple contains the values (token index, pointer, character position, character)
-        """
-
+    def step(self):
         if not self.begin:
-            raise StopIteration
+            return
 
         self.index += 1
 
@@ -152,18 +117,18 @@ class BFInterpreter:
             if char == '>':
                 self.pointer += 1
                 if self.pointer >= self.cell:
-                    raise IndexError("pointer out of range")
+                    raise IndexError("pointer out of bounds")
 
             elif char == '<':
                 self.pointer -= 1
                 if self.pointer < 0:
-                    raise IndexError("pointer out of range")
+                    raise IndexError("pointer out of bounds")
 
             elif char == '+':
-                self.array[self.pointer] = (int(self.array[self.pointer]) + 1) % 256
+                self.array[self.pointer] = (self.array[self.pointer] + 1) % 256
 
             elif char == '-':
-                self.array[self.pointer] = (int(self.array[self.pointer]) - 1) % 256
+                self.array[self.pointer] = (self.array[self.pointer] - 1) % 256
 
             elif char == ',':
                 inp = self.input()
@@ -174,7 +139,7 @@ class BFInterpreter:
                 self.array[self.pointer] = inp
 
             elif char == '.':
-                self.output(int(self.array[self.pointer]))
+                self.output(self.array[self.pointer])
 
             elif char == '[':
                 if self.array[self.pointer] == 0:
@@ -188,15 +153,20 @@ class BFInterpreter:
 
         else:
             self.begin = False
-            raise StopIteration
+            return
 
         return self.index, self.pointer, pos, char
 
-def bf_exec(source: str, **kwargs) -> None:
+    def __iter__(self):
+        self.start()
+        return self
 
-    """
-    Execute BrainFuck code from a string.
-    """
+    def __next__(self):
+        result = self.step()
+        if result is None:
+            raise StopIteration
+        return result
 
+def bf_exec(source, **kwargs):
     for _ in BFInterpreter(source, **kwargs):
         pass
