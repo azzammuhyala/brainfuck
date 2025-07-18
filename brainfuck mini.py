@@ -14,7 +14,7 @@ def bf_exec(source,input=lambda:ord(getch()),output=lambda b:print(end=chr(b),fl
   if j=='>':
    f+=1
    if f==len(d):d.append(0)
-  elif j=='<':f=0 if f<=0 else f-1
+  elif j=='<':f=max(f-1,0)
   elif j=='+':d[f]=(d[f]+1)%256
   elif j=='-':d[f]=(d[f]-1)%256
   elif j==',':d[f]=int(input())%256
