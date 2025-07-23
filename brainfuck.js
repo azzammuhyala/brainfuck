@@ -1,42 +1,14 @@
-export const BF_DEFAULT_CELL = 30000;
-
-export function BFTokens(source) {
-    if (typeof source !== 'string') {
-        throw new Error("bf_tokens() source must be string");
-    }
-
-    let comment = false;
-    let tokens = [];
-
-    for (let position = 0; position < source.length; position++) {
-        let character = source[position];
-
-        if (!comment && character === '#') {
-            comment = true;
-        } else if (comment && character === '\n') {
-            comment = false;
-        }
-
-        if (!comment && ['<', '>', '+', '-', '.', ',', '[', ']'].includes(character)) {
-            tokens.push([position, character]);
-        }
-    }
-
-    return tokens;
-}
-
 export class BFInterpreter {
 
-    constructor (source, cell=null, input=null, output=null) {
-        if (cell === null) {
-            cell = BF_DEFAULT_CELL;
-        }
-
+    constructor (source, cells=null, input=null, output=null) {
         if (input === null) {
             input = () => {
                 while (true) {
-                    let result = prompt('Brainfuck Input');
-                    if (typeof result === 'string') {
+                    let result = prompt("Brainfuck input (1 character): ");
+                    if (result === null) {
+                        return 0;
+                    }
+                    else if (typeof result === 'string') {
                         result = result.charCodeAt(0);
                         if (Number.isInteger(result) && result >= 0 && result <= 255) {
                             return result;
@@ -47,13 +19,16 @@ export class BFInterpreter {
         }
 
         if (output === null) {
-            output = (value) => {
-                console.log(String.fromCharCode(value));
+            output = (byte) => {
+                console.log(String.fromCharCode(byte));
             }
         }
 
-        if (!Number.isInteger(cell) || cell <= 0) {
-            throw new Error("BFInterpreter() cell must be integer and greater than 0");
+        if (typeof source !== 'string') {
+            throw new Error("BFInterpreter() source must be string");
+        }
+        if (!Number.isInteger(cells) && cells !== null) {
+            throw new Error("BFInterpreter() cells must be integer");
         }
         if (typeof input !== 'function') {
             throw new Error("BFInterpreter() input must be function");
@@ -62,32 +37,54 @@ export class BFInterpreter {
             throw new Error("BFInterpreter() output must be function");
         }
 
-        this.tokens = BFTokens(source);
-        this.cell = cell;
+        if (cells !== null && cells <= 0) {
+            throw new Error("BFInterpreter() cells must be integer and greater than 0");
+        }
+
+        this.running = false;
+
+        this.source = source;
+        this.cells = cells;
         this.input = input;
         this.output = output;
 
-        this.begin = false;
-        this.bracketMap = {};
+        this._tokens = [];
+        this._bracketMap = {};
 
         let stack = [];
+        let comment = false;
+        let tokenIndex = 0;
 
-        for (let i = 0; i < this.tokens.length; i++) {
-            let character = this.tokens[i][1];
+        const validCharacters = ['>', '<', '+', '-', '.', ',', '[', ']'];
 
-            if (character === '[') {
-                stack.push(i);
+        for (let position = 0; position < source.length; position++) {
+            let character = source[position];
+
+            if (!comment && character === '#') {
+                comment = true;
+            }
+            else if (comment && character === '\n') {
+                comment = false;
             }
 
-            else if (character === ']') {
-                if (stack.length === 0) {
-                    throw new Error("unbalanced brackets");
+            if (!comment && validCharacters.includes(character)) {
+                if (character === '[') {
+                    stack.push(tokenIndex);
                 }
 
-                let startIndex = stack.pop();
+                else if (character === ']') {
+                    if (stack.length === 0) {
+                        throw new Error("unbalanced brackets");
+                    }
 
-                this.bracketMap[startIndex] = i;
-                this.bracketMap[i] = startIndex;
+                    let startIndex = stack.pop();
+
+                    this._bracketMap[startIndex] = tokenIndex;
+                    this._bracketMap[tokenIndex] = startIndex;
+                }
+
+                this._tokens.push([position, character]);
+                tokenIndex += 1;
             }
         }
 
@@ -97,94 +94,95 @@ export class BFInterpreter {
     }
 
     start() {
-        if (this.begin) return;
+        if (this.running) return;
 
-        this.memory = new Array(this.cell);
+        this.running = true;
+        this.memory = this.cells === null ? [0] : new Array(this.cells).fill(0);
         this.index = -1;
-        this.pointer = 0;
-        this.begin = true;
+        this.point = 0;
     }
 
     step() {
-        if (!this.begin) return;
+        if (!this.running) return;
 
         this.index += 1;
 
-        let stop = true;
-        let position, character;
-
-        while (this.index < this.tokens.length) {
-            let point = this.memory[this.pointer] || 0;
-
-            [position, character] = this.tokens[this.index];
-
-            if (character === '>') {
-                this.pointer += 1;
-                if (this.pointer >= this.cell) {
-                    throw new Error("pointer out of bounds");
-                }
-            }
-
-            else if (character === '<') {
-                this.pointer -= 1;
-                if (this.pointer < 0) {
-                    throw new Error("pointer out of bounds");
-                }
-            }
-
-            else if (character === '+') {
-                this.memory[this.pointer] = (point + 1) % 256;
-            }
-
-            else if (character === '-') {
-                this.memory[this.pointer] = (point - 1) % 256;
-            }
-
-            else if (character === ',') {
-                let input = this.input();
-
-                if (!(Number.isInteger(input) && input >= 0 && input <= 255)) {
-                    throw new Error("BFInterpreter() input must be returns unsigned 8-bit integer");
-                }
-
-                this.memory[this.pointer] = input;
-            }
-
-            else if (character === '.') {
-                this.output(point);
-            }
-
-            else if (character === '[') {
-                if (point === 0) {
-                    this.index = this.bracketMap[this.index];
-                }
-            }
-
-            else if (character === ']') {
-                if (point !== 0) {
-                    this.index = this.bracketMap[this.index];
-                }
-            }
-
-            stop = false;
-            break;
-        }
-
-        if (stop) {
-            this.begin = false;
+        if (this.index >= this._tokens.length) {
+            this.running = false;
             return;
         }
 
-        return [this.index, this.pointer, position, character];
+        let [position, character] = this._tokens[this.index];
+        let dataPointer = this.memory[this.point] || 0;
+
+        if (character === '>') {
+            this.point += 1;
+            if (this.cells === null) {
+                if (this.point == this.memory.length) {
+                    this.memory.push(0);
+                }
+            }
+            else if (this.point >= this.cells) {
+                throw new Error("pointer out of bounds");
+            }
+        }
+
+        else if (character === '<') {
+            this.point -= 1;
+            if (this.point < 0) {
+                throw new Error("pointer out of bounds");
+            }
+        }
+
+        else if (character === '+') {
+            this.memory[this.point] = (dataPointer + 1) % 256;
+        }
+
+        else if (character === '-') {
+            this.memory[this.point] = (dataPointer - 1) % 256;
+        }
+
+        else if (character === ',') {
+            let input = this.input();
+
+            if (!(Number.isInteger(input) && input >= 0 && input <= 255)) {
+                throw new Error("BFInterpreter() input must be returns unsigned 8-bit integer");
+            }
+
+            this.memory[this.point] = input;
+        }
+
+        else if (character === '.') {
+            this.output(dataPointer);
+        }
+
+        else if (character === '[' && dataPointer === 0) {
+            this.index = this._bracketMap[this.index];
+        }
+        
+        else if (character === ']' && dataPointer !== 0) {
+            this.index = this._bracketMap[this.index];
+        }
+
+        return [this.index, this.point, position, character];
     }
 
-    stop() {
-        this.begin = false;
+    stop(cleanUp=true) {
+        if (!this.running) return;
+
+        this.running = false;
+
+        if (cleanUp) {
+            this.memory = undefined;
+            this.index = undefined;
+            this.point = undefined;
+        }
     }
 }
 
-export function BFExec(source, cell=null, input=null, output=null) {
-    let interpreter = new BFInterpreter(source, cell, input, output);
+export function BFExec(source, cells=null, input=null, output=null) {
+    let interpreter = new BFInterpreter(source, cells, input, output);
     interpreter.start();
-    while (interpreter.begin) interpreter.step();
+    while (interpreter.running) interpreter.step();
+    interpreter.stop();
 }

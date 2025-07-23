@@ -19,39 +19,13 @@ else:
         return character
 
 __all__ = [
-    'BF_DEFAULT_CELL',
     'BFInterpreter',
-    'BFTokens',
     'BFExec'
 ]
 
-BF_DEFAULT_CELL = 30000
-
-def BFTokens(source):
-    if not isinstance(source, str):
-        raise TypeError("bf_tokens() source must be string")
-
-    comment = False
-    tokens = []
-
-    for position, character in enumerate(source):
-
-        if not comment and character == '#':
-            comment = True
-        elif comment and character == '\n':
-            comment = False
-
-        if not comment and character in '<>+-.,[]':
-            tokens.append((position, character))
-
-    return tokens
-
 class BFInterpreter:
 
-    def __init__(self, source, *, cell=None, input=None, output=None):
-        if cell is None:
-            cell = BF_DEFAULT_CELL
-
+    def __init__(self, source, *, cells=None, input=None, output=None):
         if input is None:
             def input():
                 while True:
@@ -64,103 +38,129 @@ class BFInterpreter:
                 sys.stdout.write(chr(byte))
                 sys.stdout.flush()
 
-        if not isinstance(cell, int) or cell <= 0:
-            raise TypeError("BFInterpreter() cell must be integer and greater than 0")
+        if not isinstance(source, str):
+            raise TypeError("BFInterpreter() source must be string")
+        if not isinstance(cells, (int, type(None))):
+            raise TypeError("BFInterpreter() cells must be integer")
         if not callable(input):
             raise TypeError("BFInterpreter() input must be callable")
         if not callable(output):
             raise TypeError("BFInterpreter() output must be callable")
 
-        self.tokens = BFTokens(source)
-        self.cell = cell
+        if cells is not None and cells <= 0:
+            raise ValueError("BFInterpreter() cells must be greater than 0")
+
+        self.running = False
+
+        self.source = source
+        self.cells = cells
         self.input = input
         self.output = output
 
-        self.begin = False
-        self.bracketMap = {}
+        self._tokens = []
+        self._bracketMap = {}
 
         stack = []
+        comment = False
+        tokenIndex = 0
 
-        for i, (_, character) in enumerate(self.tokens):
+        for position, character in enumerate(source):
 
-            if character == '[':
-                stack.append(i)
+            if not comment and character == '#':
+                comment = True
+            elif comment and character == '\n':
+                comment = False
 
-            elif character == ']':
-                if not stack:
-                    raise SyntaxError("unbalanced brackets")
+            if not comment and character in '<>+-.,[]':
 
-                startIndex = stack.pop()
+                if character == '[':
+                    stack.append(tokenIndex)
 
-                self.bracketMap[startIndex] = i
-                self.bracketMap[i] = startIndex
+                elif character == ']':
+                    if not stack:
+                        raise SyntaxError("unbalanced brackets")
+
+                    startIndex = stack.pop()
+
+                    self._bracketMap[startIndex] = tokenIndex
+                    self._bracketMap[tokenIndex] = startIndex
+
+                self._tokens.append((position, character))
+                tokenIndex += 1
 
         if stack:
             raise SyntaxError("unbalanced brackets")
 
     def start(self):
-        if self.begin:
+        if self.running:
             return
 
-        self.memory = [0] * self.cell
+        self.running = True
+        self.memory = [0]
         self.index = -1
-        self.pointer = 0
-        self.begin = True
+        self.point = 0
+
+        if self.cells is not None:
+            self.memory *= self.cells
 
     def step(self):
-        if not self.begin:
+        if not self.running:
             return
 
         self.index += 1
 
-        while self.index < len(self.tokens):
-            position, character = self.tokens[self.index]
-
-            if character == '>':
-                self.pointer += 1
-                if self.pointer >= self.cell:
-                    raise IndexError("pointer out of bounds")
-
-            elif character == '<':
-                self.pointer -= 1
-                if self.pointer < 0:
-                    raise IndexError("pointer out of bounds")
-
-            elif character == '+':
-                self.memory[self.pointer] = (self.memory[self.pointer] + 1) % 256
-
-            elif character == '-':
-                self.memory[self.pointer] = (self.memory[self.pointer] - 1) % 256
-
-            elif character == ',':
-                input = self.input()
-
-                if not (isinstance(input, int) and 0 <= input <= 255):
-                    raise TypeError("BFInterpreter() input must be returns unsigned 8-bit integer")
-
-                self.memory[self.pointer] = input
-
-            elif character == '.':
-                self.output(self.memory[self.pointer])
-
-            elif character == '[':
-                if self.memory[self.pointer] == 0:
-                    self.index = self.bracketMap[self.index]
-
-            elif character == ']':
-                if self.memory[self.pointer] != 0:
-                    self.index = self.bracketMap[self.index]
-
-            break
-
-        else:
-            self.begin = False
+        if self.index >= len(self._tokens):
+            self.running = False
             return
 
-        return self.index, self.pointer, position, character
+        position, character = self._tokens[self.index]
 
-    def stop(self):
-        self.begin = False
+        if character == '>':
+            self.point += 1
+            if self.cells is None:
+                if self.point == len(self.memory):
+                    self.memory.append(0)
+            elif self.point >= self.cells:
+                raise IndexError("pointer out of bounds")
+
+        elif character == '<':
+            self.point -= 1
+            if self.point < 0:
+                raise IndexError("pointer out of bounds")
+
+        elif character == '+':
+            self.memory[self.point] = (self.memory[self.point] + 1) % 256
+
+        elif character == '-':
+            self.memory[self.point] = (self.memory[self.point] - 1) % 256
+
+        elif character == ',':
+            input = self.input()
+
+            if not (isinstance(input, int) and 0 <= input <= 255):
+                raise TypeError("BFInterpreter() input must be returns unsigned 8-bit integer")
+
+            self.memory[self.point] = input
+
+        elif character == '.':
+            self.output(self.memory[self.point])
+
+        elif character == '[' and self.memory[self.point] == 0:
+            self.index = self._bracketMap[self.index]
+
+        elif character == ']' and self.memory[self.point] != 0:
+            self.index = self._bracketMap[self.index]
+
+        return self.index, self.point, position, character
+
+    def stop(self, cleanUp=True):
+        if not self.running:
+            return
+
+        self.running = False
+
+        if cleanUp:
+            del self.memory, self.index, self.point
 
     def __iter__(self):
         self.start()
@@ -175,5 +175,7 @@ class BFInterpreter:
         return result
 
 def BFExec(source, **kwargs):
-    for _ in BFInterpreter(source, **kwargs):
+    interpreter = BFInterpreter(source, **kwargs)
+    for _ in interpreter:
         pass
+    interpreter.stop()
