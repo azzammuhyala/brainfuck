@@ -84,7 +84,7 @@ export class BFInterpreter {
                 }
 
                 this._tokens.push([position, character]);
-                tokenIndex += 1;
+                tokenIndex++;
             }
         }
 
@@ -105,7 +105,7 @@ export class BFInterpreter {
     step() {
         if (!this.running) return;
 
-        this.index += 1;
+        this.index++;
 
         if (this.index >= this._tokens.length) {
             this.running = false;
@@ -116,7 +116,7 @@ export class BFInterpreter {
         let dataPointer = this.memory[this.point] || 0;
 
         if (character === '>') {
-            this.point += 1;
+            this.point++;
             if (this.cells === null) {
                 if (this.point == this.memory.length) {
                     this.memory.push(0);
@@ -128,7 +128,7 @@ export class BFInterpreter {
         }
 
         else if (character === '<') {
-            this.point -= 1;
+            this.point--;
             if (this.point < 0) {
                 throw new Error("pointer out of bounds");
             }
