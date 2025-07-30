@@ -51,6 +51,7 @@ function module.BFInterpreter:new(source, cells, input, output)
     self.input = input
     self.output = output
 
+    self._tokenIndex = 0
     self._tokens = {}
     self._bracketMap = {}
 
@@ -105,25 +106,36 @@ function module.BFInterpreter:new(source, cells, input, output)
 end
 
 function module.BFInterpreter:start()
-    if self.running then return end
+    if self.running then
+        return
+    end
+
+    self._tokenIndex = 0
 
     self.running = true
     self.memory = {}
-    self.index = 0
     self.point = 1
+
+    if self.cells ~= nil then
+        for i = 1, self.cells do
+            self.memory[i] = 0
+        end
+    end
 end
 
 function module.BFInterpreter:step()
-    if not self.running then return end
+    if not self.running then
+        return
+    end
 
-    self.index = self.index + 1
+    self._tokenIndex = self._tokenIndex + 1
 
-    if self.index > #self._tokens then
+    if self._tokenIndex > #self._tokens then
         self.running = false
         return
     end
 
-    local position, character = table.unpack(self._tokens[self.index])
+    local position, character = table.unpack(self._tokens[self._tokenIndex])
     local dataPointer = self.memory[self.point] or 0
 
     if character == '>' then
@@ -137,10 +149,10 @@ function module.BFInterpreter:step()
         end
 
     elseif character == '<' then
-        self.point = self.point - 1
-        if self.point < 1 then
+        if self.point == 1 then
             error("pointer out of bounds")
         end
+        self.point = self.point - 1
 
     elseif character == '+' then
         self.memory[self.point] = (dataPointer + 1) % 256
@@ -161,31 +173,35 @@ function module.BFInterpreter:step()
         self.output(dataPointer)
 
     elseif character == '[' and dataPointer == 0 then
-        self.index = self._bracketMap[self.index]
+        self._tokenIndex = self._bracketMap[self._tokenIndex]
 
     elseif character == ']' and dataPointer ~= 0 then
-        self.index = self._bracketMap[self.index]
+        self._tokenIndex = self._bracketMap[self._tokenIndex]
     end
 
-    return {self.index, self.point, position, character}
+    return {self.point, position, character}
 end
 
 function module.BFInterpreter:stop(cleanUp)
-    if not self.running then return end
+    if not self.running then
+        return
+    end
 
     self.running = false
 
     if cleanUp == nil or cleanUp then
         self.memory = nil
-        self.index = nil
         self.point = nil
     end
 end
 
 function module.BFExec(source, cells, input, output)
     local interpreter = module.BFInterpreter:new(source, cells, input, output)
+
     interpreter:start()
+
     repeat interpreter:step() until not interpreter.running
+
     interpreter:stop()
 end
 

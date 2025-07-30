@@ -1,27 +1,45 @@
 #include <iostream>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 #include <variant>
-#include <optional>
-#include <functional>
-#include <cstdint>
-#include <cstring>
-#include <stdexcept>
-#include <map>
+
+// #include "BRAINFUCK.hpp"
 
 using namespace std;
 
-uint8_t _default_input() {
-    while (true) {
-        char character;
-        cin.get(character);
+#ifdef _WIN32
+    #include <conio.h>
+#else
+    #include <termios.h>
+    #include <unistd.h>
+    int getch() {
+        struct termios oldt, newt;
+        int character;
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+        character = getchar();
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+        return character;
+    }
+#endif
 
-        if (cin) {
-            return static_cast<uint8_t>(static_cast<unsigned char>(character));
+uint8_t _BFDefaultInput() {
+    while (true) {
+        int result = getch();
+        if (result >= 0 && result <= 255) {
+            return static_cast<uint8_t>(result);
         }
     }
 }
 
-void _default_output(uint8_t byte) {
+void _BFDefaultOutput(uint8_t byte) {
     cout.put(static_cast<char>(byte));
     cout.flush();
 }
@@ -31,8 +49,7 @@ struct BFToken {
     char character;
 };
 
-struct StepResult {
-    size_t index;
+struct BFStepResult {
     size_t point;
     size_t position;
     char character;
@@ -40,18 +57,19 @@ struct StepResult {
 
 class BFInterpreter {
     private:
+    size_t tokenIndex;
     vector<BFToken> tokens;
     map<size_t, size_t> bracketMap;
 
     public:
     bool running;
+    bool starting;
     string source;
     optional<size_t> cells;
     function<uint8_t()> input;
     function<void(uint8_t)> output;
 
-    vector<size_t> memory;
-    signed long long index;
+    vector<uint8_t> memory;
     size_t point;
 
     BFInterpreter(
@@ -62,12 +80,14 @@ class BFInterpreter {
     ) {
 
         this->running = false;
+        this->starting = false;
 
         this->source = source;
         this->cells = cells;
-        this->input = input.has_value() ? input.value() : _default_input;
-        this->output = output.has_value() ? output.value() : _default_output;
+        this->input = input.has_value() ? input.value() : _BFDefaultInput;
+        this->output = output.has_value() ? output.value() : _BFDefaultOutput;
 
+        this->tokenIndex = 0;
         this->tokens = {};
         this->bracketMap = {};
 
@@ -106,7 +126,7 @@ class BFInterpreter {
 
                 else if (character == ']') {
                     if (stack.empty()) {
-                        throw runtime_error("unbalanced brackets");
+                        throw logic_error("unbalanced brackets");
                     }
 
                     size_t startIndex = stack.back();
@@ -125,7 +145,7 @@ class BFInterpreter {
         }
 
         if (!stack.empty()) {
-            throw runtime_error("unbalanced brackets");
+            throw logic_error("unbalanced brackets");
         }
     }
 
@@ -134,27 +154,32 @@ class BFInterpreter {
             return;
         }
 
+        this->tokenIndex = 0;
+
         this->running = true;
-        this->memory = this->cells.has_value() ?
-                        vector<size_t>(this->cells.value()) :
-                        vector<size_t>(1, 0);
-        this->index = -1;
+        this->starting = true;
+        this->memory = this->cells.has_value() ? vector<uint8_t>(this->cells.value(), 0) : vector<uint8_t>(1, 0);
         this->point = 0;
     }
 
-    optional<StepResult> step() {
+    optional<BFStepResult> step() {
         if (!this->running) {
             return nullopt;
         }
 
-        this->index++;
+        if (this->starting) {
+            this->starting = false;
+        }
+        else {
+            this->tokenIndex++;
+        }
 
-        if (this->index >= this->tokens.size()) {
+        if (this->tokenIndex >= this->tokens.size()) {
             this->running = false;
             return nullopt;
         }
 
-        BFToken token = this->tokens[this->index];
+        BFToken token = this->tokens[this->tokenIndex];
         uint8_t dataPointer = (this->point < this->memory.size()) ? this->memory[this->point] : 0;
 
         if (token.character == '>') {
@@ -165,23 +190,23 @@ class BFInterpreter {
                 }
             }
             else if (this->point >= this->cells.value()) {
-                throw runtime_error("pointer out of bounds");
+                throw overflow_error("pointer out of bounds");
             }
         }
 
         else if (token.character == '<') {
             if (this->point == 0) {
-                throw runtime_error("pointer out of bounds");
+                throw overflow_error("pointer out of bounds");
             }
             this->point--;
         }
 
         else if (token.character == '+') {
-            this->memory[this->point] = (this->memory[this->point] + 1) % 256;
+            this->memory[this->point] = (dataPointer + 1) % 256;
         }
 
         else if (token.character == '-') {
-            this->memory[this->point] = (this->memory[this->point] - 1) % 256;
+            this->memory[this->point] = (dataPointer - 1) % 256;
         }
 
         else if (token.character == ',') {
@@ -189,19 +214,18 @@ class BFInterpreter {
         }
 
         else if (token.character == '.') {
-            this->output(this->memory[this->point]);
+            this->output(dataPointer);
         }
 
-        else if (token.character == '[' && this->memory[this->point] == 0) {
-            this->index = this->bracketMap[this->index];
+        else if (token.character == '[' && dataPointer == 0) {
+            this->tokenIndex = this->bracketMap[this->tokenIndex];
         }
 
-        else if (token.character == ']' && this->memory[this->point] != 0) {
-            this->index = this->bracketMap[this->index];
+        else if (token.character == ']' && dataPointer != 0) {
+            this->tokenIndex = this->bracketMap[this->tokenIndex];
         }
 
-        StepResult result = {
-            static_cast<size_t>(this->index),
+        BFStepResult result = {
             this->point,
             token.position,
             token.character
@@ -216,10 +240,10 @@ class BFInterpreter {
         }
 
         this->running = false;
+        this->starting = false;
 
         if (cleanUp) {
             this->memory.clear();
-            this->index = -1;
             this->point = 0;
         }
     }
@@ -232,7 +256,12 @@ void BFExec(
     optional<function<void(uint8_t)>> output = nullopt
 ) {
     BFInterpreter interpreter(source, cells, input, output);
+
     interpreter.start();
-    while (interpreter.running) {interpreter.step();}
+
+    while (interpreter.running) {
+        interpreter.step();
+    }
+
     interpreter.stop();
 }

@@ -57,6 +57,7 @@ class BFInterpreter:
         self.input = input
         self.output = output
 
+        self._tokenIndex = -1
         self._tokens = []
         self._bracketMap = {}
 
@@ -95,9 +96,10 @@ class BFInterpreter:
         if self.running:
             return
 
+        self._tokenIndex = -1
+
         self.running = True
         self.memory = [0]
-        self.index = -1
         self.point = 0
 
         if self.cells is not None:
@@ -107,13 +109,14 @@ class BFInterpreter:
         if not self.running:
             return
 
-        self.index += 1
+        self._tokenIndex += 1
 
-        if self.index >= len(self._tokens):
+        if self._tokenIndex >= len(self._tokens):
             self.running = False
             return
 
-        position, character = self._tokens[self.index]
+        position, character = self._tokens[self._tokenIndex]
+        dataPointer = self.memory[self.point]
 
         if character == '>':
             self.point += 1
@@ -124,15 +127,15 @@ class BFInterpreter:
                 raise IndexError("pointer out of bounds")
 
         elif character == '<':
-            self.point -= 1
-            if self.point < 0:
+            if self.point == 0:
                 raise IndexError("pointer out of bounds")
+            self.point -= 1
 
         elif character == '+':
-            self.memory[self.point] = (self.memory[self.point] + 1) % 256
+            self.memory[self.point] = (dataPointer + 1) % 256
 
         elif character == '-':
-            self.memory[self.point] = (self.memory[self.point] - 1) % 256
+            self.memory[self.point] = (dataPointer - 1) % 256
 
         elif character == ',':
             input = self.input()
@@ -143,15 +146,15 @@ class BFInterpreter:
             self.memory[self.point] = input
 
         elif character == '.':
-            self.output(self.memory[self.point])
+            self.output(dataPointer)
 
-        elif character == '[' and self.memory[self.point] == 0:
-            self.index = self._bracketMap[self.index]
+        elif character == '[' and dataPointer == 0:
+            self._tokenIndex = self._bracketMap[self._tokenIndex]
 
-        elif character == ']' and self.memory[self.point] != 0:
-            self.index = self._bracketMap[self.index]
+        elif character == ']' and dataPointer != 0:
+            self._tokenIndex = self._bracketMap[self._tokenIndex]
 
-        return self.index, self.point, position, character
+        return self.point, position, character
 
     def stop(self, cleanUp=True):
         if not self.running:
@@ -160,10 +163,11 @@ class BFInterpreter:
         self.running = False
 
         if cleanUp:
-            del self.memory, self.index, self.point
+            del self.memory, self.point
 
     def __iter__(self):
         self.start()
+
         return self
 
     def __next__(self):
@@ -176,6 +180,8 @@ class BFInterpreter:
 
 def BFExec(source, **kwargs):
     interpreter = BFInterpreter(source, **kwargs)
+
     for _ in interpreter:
         pass
+
     interpreter.stop()

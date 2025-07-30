@@ -1,3 +1,5 @@
+const validBFCharacters = ['>', '<', '+', '-', '.', ',', '[', ']'];
+
 export class BFInterpreter {
 
     constructor (source, cells=null, input=null, output=null) {
@@ -48,14 +50,13 @@ export class BFInterpreter {
         this.input = input;
         this.output = output;
 
+        this._tokenIndex = -1;
         this._tokens = [];
         this._bracketMap = {};
 
         let stack = [];
         let comment = false;
         let tokenIndex = 0;
-
-        const validCharacters = ['>', '<', '+', '-', '.', ',', '[', ']'];
 
         for (let position = 0; position < source.length; position++) {
             let character = source[position];
@@ -67,14 +68,14 @@ export class BFInterpreter {
                 comment = false;
             }
 
-            if (!comment && validCharacters.includes(character)) {
+            if (!comment && validBFCharacters.includes(character)) {
                 if (character === '[') {
                     stack.push(tokenIndex);
                 }
 
                 else if (character === ']') {
                     if (stack.length === 0) {
-                        throw new Error("unbalanced brackets");
+                        throw new SyntaxError("unbalanced brackets");
                     }
 
                     let startIndex = stack.pop();
@@ -89,30 +90,31 @@ export class BFInterpreter {
         }
 
         if (stack.length !== 0) {
-            throw new Error("unbalanced brackets");
+            throw new SyntaxError("unbalanced brackets");
         }
     }
 
     start() {
         if (this.running) return;
 
+        this._tokenIndex = -1;
+
         this.running = true;
         this.memory = this.cells === null ? [0] : new Array(this.cells).fill(0);
-        this.index = -1;
         this.point = 0;
     }
 
     step() {
         if (!this.running) return;
 
-        this.index++;
+        this._tokenIndex++;
 
-        if (this.index >= this._tokens.length) {
+        if (this._tokenIndex >= this._tokens.length) {
             this.running = false;
             return;
         }
 
-        let [position, character] = this._tokens[this.index];
+        let [position, character] = this._tokens[this._tokenIndex];
         let dataPointer = this.memory[this.point] || 0;
 
         if (character === '>') {
@@ -123,15 +125,15 @@ export class BFInterpreter {
                 }
             }
             else if (this.point >= this.cells) {
-                throw new Error("pointer out of bounds");
+                throw new RangeError("pointer out of bounds");
             }
         }
 
         else if (character === '<') {
-            this.point--;
-            if (this.point < 0) {
-                throw new Error("pointer out of bounds");
+            if (this.point === 0) {
+                throw new RangeError("pointer out of bounds");
             }
+            this.point--;
         }
 
         else if (character === '+') {
@@ -146,7 +148,7 @@ export class BFInterpreter {
             let input = this.input();
 
             if (!(Number.isInteger(input) && input >= 0 && input <= 255)) {
-                throw new Error("BFInterpreter() input must be returns unsigned 8-bit integer");
+                throw new TypeError("BFInterpreter() input must be returns unsigned 8-bit integer");
             }
 
             this.memory[this.point] = input;
@@ -157,14 +159,14 @@ export class BFInterpreter {
         }
 
         else if (character === '[' && dataPointer === 0) {
-            this.index = this._bracketMap[this.index];
+            this._tokenIndex = this._bracketMap[this._tokenIndex];
         }
         
         else if (character === ']' && dataPointer !== 0) {
-            this.index = this._bracketMap[this.index];
+            this._tokenIndex = this._bracketMap[this._tokenIndex];
         }
 
-        return [this.index, this.point, position, character];
+        return [this.point, position, character];
     }
 
     stop(cleanUp=true) {
@@ -174,7 +176,6 @@ export class BFInterpreter {
 
         if (cleanUp) {
             this.memory = undefined;
-            this.index = undefined;
             this.point = undefined;
         }
     }
@@ -182,7 +183,10 @@ export class BFInterpreter {
 
 export function BFExec(source, cells=null, input=null, output=null) {
     let interpreter = new BFInterpreter(source, cells, input, output);
+
     interpreter.start();
+
     while (interpreter.running) interpreter.step();
+
     interpreter.stop();
 }

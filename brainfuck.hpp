@@ -1,12 +1,12 @@
-#ifndef BFINTERPRETER_HPP
-#define BFINTERPRETER_HPP
+#ifndef BRAINFUCK_HPP
+#define BRAINFUCK_HPP
 
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
-#include <functional>
-#include <optional>
-#include <map>
-#include <cstdint>
 
 using namespace std;
 
@@ -15,8 +15,7 @@ struct BFToken {
     char character;
 };
 
-struct StepResult {
-    size_t index;
+struct BFStepResult {
     size_t point;
     size_t position;
     char character;
@@ -24,18 +23,19 @@ struct StepResult {
 
 class BFInterpreter {
     private:
+    size_t tokenIndex;
     vector<BFToken> tokens;
     map<size_t, size_t> bracketMap;
 
     public:
     bool running;
+    bool starting;
     string source;
     optional<size_t> cells;
     function<uint8_t()> input;
     function<void(uint8_t)> output;
 
-    vector<size_t> memory;
-    signed long long index;
+    vector<uint8_t> memory;
     size_t point;
 
     BFInterpreter(
@@ -45,7 +45,7 @@ class BFInterpreter {
         optional<function<void(uint8_t)>> output = nullopt
     );
     void start();
-    optional<StepResult> step();
+    optional<BFStepResult> step();
     void stop(bool cleanUp=true);
 };
 
